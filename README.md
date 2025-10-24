@@ -169,7 +169,7 @@ tokenizer.save_pretrained("lora_model_llama3")
        print(f"Epoch {epoch+1} - Loss: {total_loss/len(train_loader):.4f}")
 ```
 6. 결과
- 1) Quantitative & Qualitative 요약ㅋㅋㅋㅋㅋㅋㅋ
+ 1) Quantitative & Qualitative 요약
   (1) 정량적 성능 : Validation loss 1.24 → Test loss 1.21 (안정 수렴)
  
   (2) 정성적 품질 : Instruction 기반 응답의 일관성 향상, 의료 용어 표현 자연스러움
