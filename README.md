@@ -135,42 +135,57 @@ tokenizer.save_pretrained("lora_model_llama3")
    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
    outputs = model.generate(**inputs, max_new_tokens=200)
    print(tokenizer.decode(outputs[0], skip_special_tokens=True))
- ```
- 6) 분석 & 시각화
- ```python 
- # 1. 데이터 로드
-from datasets import load_dataset
-ds = load_dataset("ChuGyouk/PubMedQA-test-Ko")
 
-# 2. 학습 실행
-python train_pubmedqa_exaone.py 
-
-## training 
-optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
-num_epochs = 3
-total_steps = len(train_loader) * num_epochs
-scheduler = get_linear_schedule_with_warmup(
-    optimizer,
-    num_warmup_steps=int(0.1 * total_steps),
-    num_training_steps=total_steps
-)
-
-model.train()
-for epoch in range(num_epochs):
-    total_loss = 0
-    for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
-        optimizer.zero_grad()
-        batch = {k: v.to(device) for k, v in batch.items()}
-        outputs = model(**batch)
-        loss = outputs.loss
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
-        scheduler.step()
-        total_loss += loss.item()
-    print(f"Epoch {epoch+1} - Loss: {total_loss/len(train_loader):.4f}")
-
+    # 1. 데이터 로드
+   from datasets import load_dataset
+   ds = load_dataset("ChuGyouk/PubMedQA-test-Ko")
+   
+   # 2. 학습 실행
+   python train_pubmedqa_exaone.py 
+   
+   ## training 
+   optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
+   num_epochs = 3
+   total_steps = len(train_loader) * num_epochs
+   scheduler = get_linear_schedule_with_warmup(
+       optimizer,
+       num_warmup_steps=int(0.1 * total_steps),
+       num_training_steps=total_steps
+   )
+   
+   model.train()
+   for epoch in range(num_epochs):
+       total_loss = 0
+       for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+           optimizer.zero_grad()
+           batch = {k: v.to(device) for k, v in batch.items()}
+           outputs = model(**batch)
+           loss = outputs.loss
+           loss.backward()
+           torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+           optimizer.step()
+           scheduler.step()
+           total_loss += loss.item()
+       print(f"Epoch {epoch+1} - Loss: {total_loss/len(train_loader):.4f}")
 ```
+6. 결과
+ 1) Quantitative & Qualitative 요약ㅋㅋㅋㅋㅋㅋㅋ
+  (1) 정량적 성능 : Validation loss 1.24 → Test loss 1.21 (안정 수렴)
+ 
+  (2) 정성적 품질 : Instruction 기반 응답의 일관성 향상, 의료 용어 표현 자연스러움
+ 
+  (3) 결과 특징 : PubMedQA-Ko에서 임상 질문 이해력 향상 (의학적 정확도 ↑, 문체 일관성 ↑)
+ 
+  (4) Error 사례 : 일부 드문 긴 문장에서 문단 연결 부자연 (max_length 한계 영향)
+  
+ 2) Fine-tuning 결과
+    | 항목 | 값 |
+    |------|----|
+    | Train Steps | 60 |
+    | Train Loss | ≈ 1.28 |
+    | Eval Loss | ≈ 1.24 |
+    | 학습 시간 | 약 25분 (T4 GPU 기준) |
+    | 저장 모델 | `lora_model_llama3_merged` (16-bit merged) | 
 ## 6. Summary & Research Plan
 본 데이터는 한국어 의학 텍스트 기반 질의응답(QA) 데이터셋을 EXAONE-3.5-2.4B를 PubMedQA-Ko에 특화시켜 “의료 데이터 + AI + 품질 관리” 교차점에서 임상연구 데이터 분석 및 응답 발현 시스템을 구현하였습니다.
 향후 DCT(분산형 임상연구), eCRF, 임상문서 생성 및 검증 AI 시스템으로 개발로의 확장을 다음과 같이 제언합니다. 
