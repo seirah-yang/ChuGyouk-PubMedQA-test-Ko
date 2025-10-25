@@ -173,7 +173,7 @@
 	  
 	  2) 테스트 결과
           (1) 의학적 문체 및 논문식 서술 문체로 자연스러운 응답 생성
-![img:Resul Answer](URL:https://github.com/seirah-yang/LLM_finetuning/blob/main/LLM_answer.png)
+![Result:LLM Answer](https://github.com/seirah-yang/LLM_finetuning/blob/main/LLM_answer.png)
 
 ## 7. Summary & Research Plan
 
