@@ -33,22 +33,22 @@
 	  4) LoRA 설정 : r=16, α=16, dropout=0
 	
 	  5) Fine-tuning Layer : Q/K/V/Proj 계열 Layer
-		  ``` python
-		   # meta tensor materialize
-		   model = FastLanguageModel.for_training(model)
-		
-		   # LoRA 설정
-		   model = FastLanguageModel.get_peft_model(
-		       model,
-		       r=16,
-		       target_modules = ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
-		       lora_alpha=16,
-		       lora_dropout=0,
-		       bias="none",
-		       use_gradient_checkpointing="unsloth",
-		       random_state=3407,)
-		   model = model.to("cuda")
-		  ```
+``` python
+# meta tensor materialize
+  model = FastLanguageModel.for_training(model)
+	
+# LoRA 설정
+  model = FastLanguageModel.get_peft_model(
+	    model,
+	    r=16,
+	    target_modules = ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
+	    lora_alpha=16,
+	    lora_dropout=0,
+	    bias="none",
+	    use_gradient_checkpointing="unsloth",
+	    random_state=3407,)
+	    model = model.to("cuda")
+```
 	  6) Architecture :
 	
 		  (1) Input: QUESTION + CONTEXTS
@@ -78,34 +78,33 @@
 
 	  1) 데이터/모델 로드 및 LoRA 구성
 	
-		 ```python
-		  from datasets import load_dataset
-		  ds = load_dataset("ChuGyouk/PubMedQA-test-Ko")
-		  df = ds["test"].to_pandas()
-		  df["input"] = "질문: " + df["QUESTION"]
-		  df["output"] = df["LONG_ANSWER"]
-		
-		  from unsloth import FastLanguageModel
-		  model, tokenizer = FastLanguageModel.from_pretrained(
-		      "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
-		      max_seq_length=512,
-		      dtype=None,
-		      load_in_4bit=True,
-		      device_map=None)
-		
-		  model = model.to("cuda:0")
-		  model = FastLanguageModel.for_training(model)
-		 ```
+```python
+  from datasets import load_dataset
+  ds = load_dataset("ChuGyouk/PubMedQA-test-Ko")
+  df = ds["test"].to_pandas()
+  df["input"] = "질문: " + df["QUESTION"]
+  df["output"] = df["LONG_ANSWER"]
+
+  from unsloth import FastLanguageModel
+  model, tokenizer = FastLanguageModel.from_pretrained(
+  "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+	      max_seq_length=512,
+	      dtype=None,
+	      load_in_4bit=True,
+	      device_map=None)
+	
+   model = FastLanguageModel.for_training(model)
+```
 	
 	  2) 데이터 전처리 (Alpaca 포맷 변환)
 	 
 	  3) 학습 설정 및 Fine-Tuning
 		    
-		  ```python 
-		   from trl import SFTTrainer
-		   from transformers import TrainingArguments
+```python 
+   from trl import SFTTrainer
+   from transformers import TrainingArguments
 		   
-		   training_args = TrainingArguments(
+   training_args = TrainingArguments(
 		       output_dir="outputs",
 		       per_device_train_batch_size=3,
 		       gradient_accumulation_steps=4,
@@ -118,48 +117,48 @@
 		       report_to="none",
 		       remove_unused_columns=False)
 		   
-		   trainer = SFTTrainer(
-		       model=model,
-		       tokenizer=tokenizer,
-		       train_dataset=train_ds,
-		       eval_dataset=valid_ds,
-		       dataset_text_field="text",
-		       max_seq_length=512,
-		       dataset_num_proc=2,
-		       packing=False,
-		       args=training_args)
+   trainer = SFTTrainer(
+	       model=model,
+	       tokenizer=tokenizer,
+	       train_dataset=train_ds,
+	       eval_dataset=valid_ds,
+	       dataset_text_field="text",
+	       max_seq_length=512,
+	       dataset_num_proc=2,
+	       packing=False,
+	       args=training_args)
 		   
-		   trainer_stats = trainer.train()
-		 ```
+   trainer_stats = trainer.train()
+```
 	
 	  4) 모델 저장
 		 
-		 ```python 
-		   FastLanguageModel.for_inference(model)
-		   model.save_pretrained("lora_model_llama3")
-		   tokenizer.save_pretrained("lora_model_llama3")
-		   model.save_pretrained_merged("lora_model_llama3_merged", tokenizer, save_method="merged_16bit")
-		 ```
+```python 
+   FastLanguageModel.for_inference(model)
+   model.save_pretrained("lora_model_llama3")
+   tokenizer.save_pretrained("lora_model_llama3")
+   model.save_pretrained_merged("lora_model_llama3_merged", tokenizer, save_method="merged_16bit")
+```
 	
 	  5) 검증 및 테스트
 	 
-		 ```python 
-		   from unsloth import FastLanguageModel
-		   import torch
+```python 
+   from unsloth import FastLanguageModel
+   import torch
+   
+   model, tokenizer = FastLanguageModel.from_pretrained(
+			  "lora_model_llama3_merged",
+    		  max_seq_length=512,
+		      dtype=torch.float16,
+		      load_in_4bit=False,
+		      device_map=None)
 		   
-		   model, tokenizer = FastLanguageModel.from_pretrained(
-		       "lora_model_llama3_merged",
-		       max_seq_length=512,
-		       dtype=torch.float16,
-		       load_in_4bit=False,
-		       device_map=None)
-		   
-		   prompt = "배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은?"
-		   inputs = tokenizer(prompt, return_tensors="pt").to("cuda:0")
-		   with torch.no_grad():
-		       outputs = model.generate(**inputs, max_new_tokens=128)
-		   print("💬 모델 응답:", tokenizer.decode(outputs[0], skip_special_tokens=True))
-		  ``` 
+   prompt = "배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은?"
+   inputs = tokenizer(prompt, return_tensors="pt").to("cuda:0")
+   with torch.no_grad():
+   outputs = model.generate(**inputs, max_new_tokens=128)
+   print("💬 모델 응답:", tokenizer.decode(outputs[0], skip_special_tokens=True))
+``` 
    
 ## 6. 결과
 	  1) 정량적/정성적 성능 평가
@@ -173,15 +172,17 @@
 	
 	  
 	  2) 테스트 결과
-		   ```python 
-	     	 💬 입력 질문: 
-		        “배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은?”
+          (1) 의학적 문체 및 논문식 서술 문체로 자연스러운 응답 생성
+	     
+```python 
+    	 💬 입력 질문: 
+         “배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은?”
 		     
-		     💬 모델 응답:
-		       " 배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은? 직장암 환자군과 대조군을 비교하여 연구한 결과,
-		         직장암 환자군의 핸드폰 사용 습관은 배변 시 핸드폰 사용이 직장암 발병률이 더 높게 나타났습니다.
-		         (의학적 문체 및 논문식 서술 문체로 자연스러운 응답 생성)
-	      ``` 
+	     💬 모델 응답:
+         " 배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은? 직장암 환자군과 대조군을 비교하여 연구한 결과,
+          직장암 환자군의 핸드폰 사용 습관은 배변 시 핸드폰 사용이 직장암 발병률이 더 높게 나타났습니다."
+```
+
 ## 7. Summary & Research Plan
 
 	본 연구는 한국어 의학 텍스트 기반 질의응답(QA) 데이터셋인 PubMedQA-Ko를 활용하여 Meta-Llama-3.1-8B-Instruct (LoRA 4bit) 모델을 파인튜닝함으로써, “의료 데이터 + AI + 품질 관리”의 교차점에서 임상연구 데이터 분석 및 응답 발현 시스템을 구현하였습니다.
