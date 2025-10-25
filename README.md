@@ -3,41 +3,37 @@ PubMedQA-Ko 데이터셋 기반 LoRA Instruction Fine-Tuning 프로젝트
 
 ## 1. 프로젝트 개요 (Project Overview)
 
-이 프로젝트는 Meta-Llama-3.1-8B-Instruct 모델을 Unsloth(4bit LoRA) 및 Hugging Face TRL(SFTTrainer) 기반으로 파인튜닝하여 한글 의료 질의응답 데이터셋(PubMedQA-test-Ko)에 특화된 서술 답변(Long Answer)을 생성하도록 학습(fine-tuning)하는 프로젝트입니다.
+이 프로젝트는 Meta-Llama-3.1-8B-Instruct (4bit, via Unsloth) 모델을 한국어 의학 QA 데이터셋인 PubMedQA-test-Ko로 파인튜닝(fine-tuning)하여 의료 관련 QA 품질 향상과 도메인 적응을 실험 및 검증한 모델링입니다.
+
 
 ## 2. 데이터셋 (Dataset)
 
- 1) Name: ChuGyouk/PubMedQA-test-Ko
+  ### 1) Name: ChuGyouk/PubMedQA-test-Ko
 
- 2) Type: 한국어 번역 버전의 PubMedQA
+  ### 2) Type: 한국어 번역 버전 PubMedQA
 
- 3) Structure:
+  ### 3) Structure:
  
   (1) QUESTION :	의학적 질문
   
-  (2) CONTEXTS : 관련 논문 요약(Abstract)
+  (2) CONTEXTS : 논문 요약(Abstract)
   
   (3) LONG_ANSWER : 논문 내용 기반 서술형 답변
 
-## 3. 주요구성
+  ### 4) test dataset을 저장 후, train/validation 분할 
 
- 1) Base model: unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit
+## 3. 모델 구성
 
- 2) Framework: PyTorch + Hugging Face Transformers
+  ### 1) Base model : unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit
 
- 3) Task: Text Generation (질문 + 문맥 → 답변 생성)
+  ### 2) Framework : PyTorch + TRL (SFTTrainer) + Unsloth
 
- 4) Architecture:
+  ### 3) Task : Text Generation (질문 + 문맥 → 답변 생성)
 
-  (1) Input: QUESTION + CONTEXTS
+  ### 4) LoRA 설정 : r=16, α=16, dropout=0
 
-  (2) Output: LONG_ANSWER (자연어 문장)
-
-  (3) Fine-tuning scope: 상위 7개 Transformer layer + LM head
-
- 5) 학습 방법 : LoRA (Low-Rank Adaptation) + Supervised Fine-Tuning (SFT)
- 
-``` python
+  ### 5) Fine-tuning Layer : Q/K/V/Proj 계열 Layer
+  ``` python
    # meta tensor materialize
    model = FastLanguageModel.for_training(model)
 
@@ -52,35 +48,59 @@ PubMedQA-Ko 데이터셋 기반 LoRA Instruction Fine-Tuning 프로젝트
        use_gradient_checkpointing="unsloth",
        random_state=3407,)
    model = model.to("cuda")
-```
+  ```
+  ### 6) Architecture :
 
- 6) 환경 설정 
-  ``` python
-   !pip install -U "unsloth>=0.8.8" "trl>=0.9.4" "transformers>=4.44.0" "accelerate>=0.33.0" "bitsandbytes>=0.43.1" "datasets" "scikit-learn"
-   !pip uninstall -y peft && pip install "peft>=0.11.1"
-```
-☞ 하위층은 언어 일반 지식 유지, 상위층만 의학 도메인에 맞게 미세조정
+  (1) Input: QUESTION + CONTEXTS
 
-## 4. 학습 설정(Training Configuration)
- 1) Epochs : 3
+  (2) Output: LONG_ANSWER (자연어 문장)
+
+
+## 4. 학습 설정 (Training Configuration)
+
+  ### 1) Epochs : 2
  
- 2) Learning rate :	1e-5
+  ### 2) Learning rate : 2e-4
  
- 3) Optimizer :	AdamW
+  ### 3) Optimizer : AdamW 
  
- 4) Batch size : 1
+  ### 4) Scheduler : Linear Warmup
  
- 5) Precision : bfloat16
+  ### 5) Batch size : 3 (gradient_accum 4 → total 12)
  
- 6) Framework	PyTorch 2.x / Transformers 4.40+
+  ### 6) Max steps : 60
+ 
+  ### 7) Precision : bf16 (지원 시)
+ 
+  ### 8) Stability : Triton, CUDA Graph 비활성화
+ 
 
 ## 5. WorkFlow 
 
- 1) 모델 로드 및 LoRA 구성
+  ### 1) 데이터/모델 로드 및 LoRA 구성
+
+ ```python
+  from datasets import load_dataset
+  ds = load_dataset("ChuGyouk/PubMedQA-test-Ko")
+  df = ds["test"].to_pandas()
+  df["input"] = "질문: " + df["QUESTION"]
+  df["output"] = df["LONG_ANSWER"]
+
+  from unsloth import FastLanguageModel
+  model, tokenizer = FastLanguageModel.from_pretrained(
+      "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+      max_seq_length=512,
+      dtype=None,
+      load_in_4bit=True,
+      device_map=None)
+
+  model = model.to("cuda:0")
+  model = FastLanguageModel.for_training(model)
+ ```
+
+  ### 2) 데이터 전처리 (Alpaca 포맷 변환)
  
- 2) 데이터 전처리 (Alpaca 포맷 변환)
- 
- 3) 학습 설정 및 Fine-Tuning
+  ### 3) 학습 설정 및 Fine-Tuning
     
   ```python 
    from trl import SFTTrainer
@@ -113,99 +133,125 @@ PubMedQA-Ko 데이터셋 기반 LoRA Instruction Fine-Tuning 프로젝트
    trainer_stats = trainer.train()
  ```
 
- 4) 모델 저장
-```python 
-  # LoRA 어댑터 저장
-model.save_pretrained("lora_model_llama3")
-tokenizer.save_pretrained("lora_model_llama3")
-```
+  ### 4) 모델 저장
+ 
+  ```python 
+   FastLanguageModel.for_inference(model)
+   model.save_pretrained("lora_model_llama3")
+   tokenizer.save_pretrained("lora_model_llama3")
+   model.save_pretrained_merged("lora_model_llama3_merged", tokenizer, save_method="merged_16bit")
+ ```
 
- 5) 테스트 평가 및 추론
+  ### 5) 검증 및 테스트
+ 
  ```python 
-   # test_ds에서 text 컬럼만 사용
-   test_ds = test_ds.select_columns(["text"])
-   trainer.args.remove_unused_columns = False
+   from unsloth import FastLanguageModel
+   import torch
    
-   eval_results = trainer.evaluate(test_ds)
-   print("\n📊 Test Evaluation Results:")
-   print(eval_results)
+   model, tokenizer = FastLanguageModel.from_pretrained(
+       "lora_model_llama3_merged",
+       max_seq_length=512,
+       dtype=torch.float16,
+       load_in_4bit=False,
+       device_map=None)
    
-   # 샘플 추론
-   prompt = "폐암 환자의 통증 관리를 위해 가장 중요한 평가 항목은 무엇인가요?"
-   inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
-   outputs = model.generate(**inputs, max_new_tokens=200)
-   print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+   prompt = "배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은?"
+   inputs = tokenizer(prompt, return_tensors="pt").to("cuda:0")
+   with torch.no_grad():
+       outputs = model.generate(**inputs, max_new_tokens=128)
+   print("💬 모델 응답:", tokenizer.decode(outputs[0], skip_special_tokens=True))
+  ``` 
+   
+## 6. 결과
+  ### 1) 정량적/정성적 성능 평가
+  (1) Validation loss 1.24 → Test loss 1.21로 안정 수렴
 
-    # 1. 데이터 로드
-   from datasets import load_dataset
-   ds = load_dataset("ChuGyouk/PubMedQA-test-Ko")
-   
-   # 2. 학습 실행
-   python train_pubmedqa_exaone.py 
-   
-   ## training 
-   optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
-   num_epochs = 3
-   total_steps = len(train_loader) * num_epochs
-   scheduler = get_linear_schedule_with_warmup(
-       optimizer,
-       num_warmup_steps=int(0.1 * total_steps),
-       num_training_steps=total_steps
-   )
-   
-   model.train()
-   for epoch in range(num_epochs):
-       total_loss = 0
-       for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
-           optimizer.zero_grad()
-           batch = {k: v.to(device) for k, v in batch.items()}
-           outputs = model(**batch)
-           loss = outputs.loss
-           loss.backward()
-           torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-           optimizer.step()
-           scheduler.step()
-           total_loss += loss.item()
-       print(f"Epoch {epoch+1} - Loss: {total_loss/len(train_loader):.4f}")
-```
-6. 결과
- 1) Quantitative & Qualitative 요약
-  (1) 정량적 성능 : Validation loss 1.24 → Test loss 1.21 (안정 수렴)
- 
-  (2) 정성적 품질 : Instruction 기반 응답의 일관성 향상, 의료 용어 표현 자연스러움
- 
-  (3) 결과 특징 : PubMedQA-Ko에서 임상 질문 이해력 향상 (의학적 정확도 ↑, 문체 일관성 ↑)
- 
-  (4) Error 사례 : 일부 드문 긴 문장에서 문단 연결 부자연 (max_length 한계 영향)
+  (2) 정성적 품질 : Instruction 기반 응답의 일관성 향상, 의료용어 표현 자연스러움
   
- 2) Fine-tuning 결과
-    | 항목 | 값 |
-    |------|----|
-    | Train Steps | 60 |
-    | Train Loss | ≈ 1.28 |
-    | Eval Loss | ≈ 1.24 |
-    | 학습 시간 | 약 25분 (T4 GPU 기준) |
-    | 저장 모델 | `lora_model_llama3_merged` (16-bit merged) | 
-## 6. Summary & Research Plan
-본 데이터는 한국어 의학 텍스트 기반 질의응답(QA) 데이터셋을 EXAONE-3.5-2.4B를 PubMedQA-Ko에 특화시켜 “의료 데이터 + AI + 품질 관리” 교차점에서 임상연구 데이터 분석 및 응답 발현 시스템을 구현하였습니다.
-향후 DCT(분산형 임상연구), eCRF, 임상문서 생성 및 검증 AI 시스템으로 개발로의 확장을 다음과 같이 제언합니다. 
+  (3) 결과 특징 : PubMedQA-Ko 데이터에서 임상 질문 이해력 향상(의학적 정확도와 문체 일관성 향상)
+
+  (4) Error 사례 : 긴 문장에서 문단 전환이 부자연스러움 → max_length=512 제한 영향(용량문제로 제한 함)
+
+  
+  ### 2) 테스트 결과
+     💬 입력 질문: 
+        “배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은?”
+     
+     💬 모델 응답:
+       " 배변 시 핸드폰 사용 습관이 직장암에 미치는 영향은? 직장암 환자군과 대조군을 비교하여 연구한 결과,
+         직장암 환자군의 핸드폰 사용 습관은 배변 시 핸드폰 사용이 직장암 발병률이 더 높게 나타났습니다.
+         (의학적 문체 및 논문식 서술 문체로 자연스러운 응답 생성)
+    
+## 7. Summary & Research Plan
+
+본 연구는 한국어 의학 텍스트 기반 질의응답(QA) 데이터셋인 PubMedQA-Ko를 활용하여 Meta-Llama-3.1-8B-Instruct (LoRA 4bit) 모델을 파인튜닝함으로써, “의료 데이터 + AI + 품질 관리”의 교차점에서 임상연구 데이터 분석 및 응답 발현 시스템을 구현하였습니다.
+
+이를 통해 모델은 의학적 질문의 이해력, 문체의 일관성, 의료용어의 자연스러운 사용 능력을 향상시켰으며, 향후 분산형 임상연구(DCT), eCRF 데이터 품질검증, 임상문서 생성 및 자동검증 AI 시스템으로의 확장하는 것을 제언합니다. 
 
  ### 1) DCT 분산형 임상 연구를 위한 증상 모니터링: 환자 자가 보고용 triage 분류 
-   (1) 단계 
-      - 증상 모니터링 자동 triage
-        : 환자 자가 보고 데이터 기반 이상 증상 자동 분류
-      - AE 노트 - triage + 코딩 Proof of Concept
-        : CDASH/SDTM 표준 기준에 기반하여 의학 용어 매핑 및 품질 검증 
-      - 규정 RAG + 검증 + 문서생성 
-        : 규정에 준수하여 환자 증상 모니터링 및 보고, EHR 작성 후, 자동 검증 시스템 구축 
-        
-** Author ** 
-양 소 라 | RN, BSN, MSN
+  (1) 단계 
+    
+    ① 증상 모니터링 자동 triage
+    
+      : 환자 자가 보고 데이터 기반 이상 증상 자동 분류
+    
+    ② AE 노트 - triage + 코딩 Proof of Concept
+    
+      : CDASH/SDTM 표준 기준에 기반하여 의학 용어 매핑 및 품질 검증 
+    
+    ③ 규정 RAG + 검증 + 문서생성 
+    
+      : 규정에 준수하여 환자 증상 모니터링 및 보고, EHR 작성 후, 자동 검증 시스템 구축
 
-**참고 문헌**
-딥러닝 전이학습(Transfer Learning)과 파인튜닝(Fine Tuning) → https://hi-ai0913.tistory.com/32
-GPT-2를 이용한 챗봇 파인튜닝 → https://wikidocs.net/217620
-Hu et al., LoRA: Low-Rank Adaptation of Large Language Models (ICLR 2022)
-Ouyang et al., InstructGPT: Training language models to follow instructions with human feedback (2022)
-Unsloth Docs — Efficient LoRA Training
-Hugging Face TRL Docs
+ ### 2) 확장 및 활용 방안
+   (1) 의료 QA 자동화 
+   
+      임상연구 간호사(CRC/CRA) 및 연구자 대상 의료 질의응답 시스템 구축.
+     
+      PubMedQA 기반 QA Fine-tuning 결과를 바탕으로, 임상시험 프로토콜, SAE 보고서 등에서의 질의응답 자동화.
+   
+   (2) DCT 기반 모니터링
+   
+      환자 자가 보고형 증상 데이터 triage 시스템 구축.
+      
+      환자가 모바일 또는 웨어러블을 통해 보고한 증상을 자동 분류(triage)하고, 이상 증상(AE) 발생 시 즉시 알림 및 의료진 검토 지원.
+   
+   (3) eCRF 연계
+   
+      CDASH/SDTM 표준 포맷 매핑 및 AI 기반 질의 생성.
+      
+      환자 보고 데이터나 모니터링 로그를 eCRF 구조로 변환하고, 불일치 또는 결측값 자동 탐지 및 질의 자동 생성.
+   
+   (4) 문서 품질관리
+   
+      행정/R&D 문서 자동 검증 및 참고문헌 링크 제시 시스템.
+      
+      규정 기반 RAG과 NLI 기반 검증기를 연계하여, 문서의 포맷·규정·정합성을 평가하고 참조 문헌 자동 링크.
+   
+   (5) 도메인 확장
+   
+      Oncology, Pharmacovigilance, CDISC 표준 기반 학습 확장.
+      
+      암환자 증상 데이터, 약물 부작용 모니터링, 의학 통계 분석 등 다양한 임상 데이터 도메인 확장 가능.
+        
+### Author  
+#### 양 소 라 | RN, BSN, MSN
+
+Clinical Data Science Researcher
+
+AI Developer (End-to-End Clinical AI Bootcamp, AlphaCo)
+
+Domain Focus: Clinical Data Management, Digital Medicine, DCT, CDISC/CDASH, AI for eCRF, NLP-based Document Automation
+
+### 참고문헌 
+ • GPT-2를 이용한 챗봇 파인튜닝. https://wikidocs.net/217620
+ 
+ • Hugging Face TRL Docs
+	
+ •	Jin et al. (2019). PubMedQA: A Dataset for Biomedical Research Question Answering. EMNLP 2019.
+	
+ •	LGAI Research (2024). EXAONE 3.5 Multilingual Large Language Model.
+ 
+ • Unsloth Docs — Efficient LoRA Training
+ 
+ • 딥러닝 전이학습(Transfer Learning)과 파인튜닝(Fine Tuning) → https://hi-ai0913.tistory.com/32
